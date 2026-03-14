@@ -1,14 +1,9 @@
+import os
 from pathlib import Path
 
-
-def find_project_root(start: Path) -> Path:
-    for p in [start, *start.parents]:
-        if (p / "资料").exists():
-            return p / "资料"
-    raise RuntimeError("Project root not found")
-
-
-PROJECT_ROOT = find_project_root(Path(__file__).resolve())
+PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT"))
+if not PROJECT_ROOT:
+    raise RuntimeError("请先配置项目路径")
 
 
 def root_path(*paths) -> Path:
