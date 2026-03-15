@@ -16,5 +16,5 @@ def safe_path(rel_path: str) -> Path:
     # 此时p的parents里是不会有a的, 否则a/../../b的parents里就会有a
     p = root_path(rel_path).resolve()
     if PROJECT_ROOT not in p.parents and p != PROJECT_ROOT:
-        raise ValueError("Path escapes project root")
+        raise ValueError("非法路径: 超出项目目录")
     return p

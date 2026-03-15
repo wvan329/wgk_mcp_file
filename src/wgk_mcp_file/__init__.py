@@ -1,3 +1,5 @@
+import subprocess
+import time
 from typing import Annotated, Literal, Optional
 import shutil
 
@@ -12,6 +14,56 @@ import logging
 logging.basicConfig(level=logging.WARNING)
 
 mcp = FastMCP()
+
+
+@mcp.tool()
+async def run_commands(
+        commands: Annotated[list[str], Field(description="要执行的命令列表")],
+        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
+        timeout: Annotated[int, Field(description="超时时间（秒）,默认10秒")] = 10):
+    """在指定目录下执行多条命令"""
+    p = safe_path(rel_path)
+
+    if not p.exists() or not p.is_dir():
+        raise ValueError("目录不存在")
+
+    cmd = " && ".join(commands)
+
+    process = subprocess.Popen(
+        cmd,
+        shell=True,
+        cwd=p,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
+
+    start = time.time()
+    output = []
+
+    while True:
+        line = process.stdout.readline()
+
+        if line:
+            print(line.strip())  # 实时打印
+            output.append(line)
+
+        if process.poll() is not None:
+            break
+
+        if time.time() - start > timeout:
+            process.kill()
+            return {
+                "success": False,
+                "stdout": "".join(output),
+                "stderr": "Command timeout"
+            }
+
+    return {
+        "stdout": "".join(output),
+        "stderr": ""
+    }
 
 
 @mcp.tool()
