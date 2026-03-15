@@ -1,7 +1,7 @@
 import subprocess
-import time
 from typing import Annotated, Literal, Optional
 import shutil
+import chardet
 
 from mcp.server.fastmcp import FastMCP
 
@@ -19,78 +19,93 @@ mcp = FastMCP()
 @mcp.tool()
 async def run_commands(
         commands: Annotated[list[str], Field(description="要执行的命令列表")],
-        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
-        timeout: Annotated[int, Field(description="超时时间（秒）,默认10秒")] = 10):
-    """在指定目录下执行多条命令"""
+        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = ""):
+    # timeout: Annotated[int, Field(description="超时时间（秒）,默认10秒")] = 10)
+    """
+    在指定目录下执行一组 shell 命令。
+    特点：
+    - 每次调用都是独立执行环境，不会记住之前的工作目录。
+    - 必须通过 rel_path 指定要执行命令的目录。
+    - 多个命令会按顺序执行。
+    限制：
+    - 不要执行长期运行的命令，例如：
+      - npm run dev
+      - python app.py
+      - vite
+      - docker run
+      这些命令不会退出，会导致工具超时。
+  """
     p = safe_path(rel_path)
 
     if not p.exists() or not p.is_dir():
         raise ValueError("目录不存在")
-
+    # 禁止明显危险命令
+    dangerous = ["rm", "del", "shutdown", "reboot", "mkfs", "format"]
+    for cmd in commands:
+        for bad in dangerous:
+            if cmd.lower().startswith(bad):
+                return f"检测到危险命令: {cmd}, 拒绝执行"
+    # 过滤掉以 cd 开头的命令
+    # commands = [c for c in commands if not c.strip().startswith("cd ")]
     cmd = " && ".join(commands)
 
-    process = subprocess.Popen(
+    result = subprocess.run(
         cmd,
         shell=True,
         cwd=p,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1
+        capture_output=True,
+        stdin=subprocess.DEVNULL,  # 关键：禁用交互
     )
 
-    start = time.time()
-    output = []
+    encoding = chardet.detect(result.stdout)["encoding"] or "utf-8"
 
-    while True:
-        line = process.stdout.readline()
-
-        if line:
-            print(line.strip())  # 实时打印
-            output.append(line)
-
-        if process.poll() is not None:
-            break
-
-        if time.time() - start > timeout:
-            process.kill()
-            return {
-                "success": False,
-                "stdout": "".join(output),
-                "stderr": "Command timeout"
-            }
+    stdout = result.stdout.decode(encoding, errors="ignore")
+    stderr = result.stderr.decode(encoding, errors="ignore")
 
     return {
-        "stdout": "".join(output),
-        "stderr": ""
+        "stdout": stdout,
+        "stderr": stderr
     }
 
 
 @mcp.tool()
 def tree_dir(
-        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = ""
+        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
+        pattern: Annotated[
+            str, Field(description="文件/目录名匹配模式，支持通配符，如 *.py 或 *test*，默认匹配所有。")] = "*"
 ):
-    """递归列出目录下所有文件和目录路径。"""
+    """递归列出目录下所有文件和目录路径，可按模式过滤。"""
+    return "警告! 该工具可能会列出超大量输出，请确认当前场景是否确实需要使用? 如果确定, 请使用相同参数调用confirm工具."
 
+
+@mcp.tool()
+def confirm(
+        rel_path: str = "",
+        pattern: str = "*"
+):
     p = safe_path(rel_path)
-
     return ",".join(
         str(x.relative_to(PROJECT_ROOT))
-        for x in p.rglob("*")
+        for x in p.rglob(pattern)
     )
 
 
 @mcp.tool()
-def list_dir(rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = ""):
-    """列出指定目录下的文件和子目录。"""
+def list_dir(
+        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
+        pattern: Annotated[str, Field(description="目录/文件名匹配模式，支持通配符，如 test*，默认匹配所有。")] = "*"
+):
+    """列出指定目录下的文件和子目录，可按模式过滤。"""
     p = safe_path(rel_path)
-    return ",".join([x.name for x in p.iterdir()])
+    return ",".join([x.name for x in p.iterdir() if x.match(pattern)])
 
 
 @mcp.tool()
-def list_files(rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
-               pattern: Annotated[str, Field(description="文件匹配模式,如 *.py、*.txt，默认匹配所有文件。")] = "*"):
-    """递归列出或查找指定目录下的所有文件。"""
+def list_files(
+        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
+        pattern: Annotated[str, Field(description="文件名匹配模式,如 *.py、*.txt，默认匹配所有文件。")] = "*"
+):
+    """递归列出或查找指定目录下的文件，可按模式过滤。"""
     p = safe_path(rel_path)
     return ",".join([str(x.relative_to(PROJECT_ROOT)) for x in p.rglob(pattern) if x.is_file()])
 
@@ -98,58 +113,29 @@ def list_files(rel_path: Annotated[str, Field(description="相对于项目根目
 @mcp.tool()
 def patch_file(
         src: Annotated[str, Field(description="文件路径(相对于项目根目录)")],
-        pattern: Annotated[str, Field(description="匹配模式")],
-        content: Annotated[str, Field(description="要插入的内容")],
-        position: Annotated[
-            Literal["after", "before", "replace"],
-            Field(description="插入位置")
-        ] = "after"
+        original_content: Annotated[str, Field(description=("要匹配的原始文件内容"))],
+        new_content: Annotated[str, Field(
+            description="用于替换的新内容"
+        )]
 ):
-    """通过正则表达式定位文件中的唯一匹配位置，并进行局部修改。
-    匹配规则：
-    - 允许 ^ 和 $ 匹配每一行的开头和结尾
-    - 允许 `.` 匹配换行符，从而支持跨多行匹配
+    """通过原文内容匹配文件中的唯一位置，并进行替换。
     逻辑：
-    1. 若 pattern 未匹配到任何内容，则不执行修改。
-    2. 若 pattern 匹配到多处，则不进行任何操作并返回错误。
-    3. 若 pattern 仅匹配到一处，则根据 position 在匹配位置进行插入或替换。
+    1. 如果文件中未找到完全匹配的原文内容 → 不执行修改。
+    2. 如果匹配到多处 → 不执行修改。
+    3. 如果匹配到唯一一处 → 将其替换为 new_content。
     """
     p = safe_path(src)
-
     if not p.exists():
         return f"错误：文件 {p} 不存在"
-
     text = p.read_text(encoding="utf-8")
-
-    # 使用正则查找所有匹配项
-    # MULTILINE → 解决 “每一行”
-    # DOTALL(S) → 解决 “跨多行”
-    matches = list(re.finditer(pattern, text, re.MULTILINE | re.S))
-    count = len(matches)
-
-    # 场景 1：匹配不到 -> 全部重写（覆盖）
+    count = text.count(original_content)
     if count == 0:
-        return f"未匹配到 {pattern}, 未执行任何操作。"
-
-    # 场景 2：匹配过多 -> 返回错误，防止歧义
-    if count > 1:
-        return f"错误：匹配到 {count} 处结果，请提供更精确的定位符。"
-
-    # 场景 3：正好匹配到一个 -> 执行插入
-    match = matches[0]
-    start, end = match.span()
-
-    if position == "after":
-        # 在匹配内容后面换行插入
-        new_text = text[:end] + f"{content}" + text[end:]
-    elif position == "before":
-        # 在匹配内容前面换行插入
-        new_text = text[:start] + f"{content}" + text[start:]
-    else:  # replace
-        new_text = text[:start] + content + text[end:]
-
+        return "未匹配到指定内容，未执行任何操作。"
+    elif count > 1:
+        return f"匹配到 {count} 处，操作取消，请确保原文内容唯一。"
+    new_text = text.replace(original_content, new_content, 1)
     p.write_text(new_text, encoding="utf-8")
-    return f"已成功在定位点 {position} 插入内容。"
+    return "已成功替换匹配内容。"
 
 
 @mcp.tool()
