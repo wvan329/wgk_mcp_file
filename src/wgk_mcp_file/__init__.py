@@ -22,7 +22,7 @@ async def run_commands(
         rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = ""):
     # timeout: Annotated[int, Field(description="超时时间（秒）,默认10秒")] = 10)
     """
-    在指定目录下执行一组 shell 命令。
+    该工具用于执行cmd命令, 不应该用于操作文件.
     特点：
     - 每次调用都是独立执行环境，不会记住之前的工作目录。
     - 必须通过 rel_path 指定要执行命令的目录。
@@ -38,7 +38,7 @@ async def run_commands(
     p = safe_path(rel_path)
 
     if not p.exists() or not p.is_dir():
-        raise ValueError("目录不存在")
+        return f"相对路径不存在: {rel_path}"
     # 禁止明显危险命令
     dangerous = ["rm", "del", "shutdown", "reboot", "mkfs", "format"]
     for cmd in commands:
