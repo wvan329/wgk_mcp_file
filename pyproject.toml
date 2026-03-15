@@ -1,6 +1,6 @@
 [project]
 name = "wgk-mcp-file"
-version = "0.1.4"
+version = "0.1.7"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -8,7 +8,6 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "chardet>=7.1.0",
     "mcp[cli]>=1.26.0",
 ]
 

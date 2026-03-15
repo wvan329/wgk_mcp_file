@@ -1,13 +1,11 @@
 import subprocess
 from typing import Annotated, Literal, Optional
 import shutil
-import chardet
 
 from mcp.server.fastmcp import FastMCP
 
 from pydantic import Field
 
-import re
 from .path_utils import safe_path, PROJECT_ROOT
 import logging
 
@@ -22,7 +20,7 @@ async def run_commands(
         rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = ""):
     # timeout: Annotated[int, Field(description="超时时间（秒）,默认10秒")] = 10)
     """
-    该工具用于执行cmd命令, 不应该用于操作文件.
+    用户为Windows系统,该工具用于执行shell命令.
     特点：
     - 每次调用都是独立执行环境，不会记住之前的工作目录。
     - 必须通过 rel_path 指定要执行命令的目录。
@@ -55,34 +53,24 @@ async def run_commands(
         cwd=p,
         capture_output=True,
         stdin=subprocess.DEVNULL,  # 关键：禁用交互
+        errors="ignore"
     )
 
-    encoding = chardet.detect(result.stdout)["encoding"] or "utf-8"
-
-    stdout = result.stdout.decode(encoding, errors="ignore")
-    stderr = result.stderr.decode(encoding, errors="ignore")
-
     return {
-        "stdout": stdout,
-        "stderr": stderr
+        "stdout": result.stdout,
+        "stderr": result.stderr
     }
 
 
 @mcp.tool()
-def tree_dir(
-        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
+def search_file(
         pattern: Annotated[
-            str, Field(description="文件/目录名匹配模式，支持通配符，如 *.py 或 *test*，默认匹配所有。")] = "*"
+            str, Field(description="文件/目录名匹配模式，支持通配符，如 *.py 或 *test*")],
+        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
 ):
-    """递归列出目录下所有文件和目录路径，可按模式过滤。"""
-    return "警告! 该工具可能会列出超大量输出，请确认当前场景是否确实需要使用? 如果确定, 请使用相同参数调用confirm工具."
-
-
-@mcp.tool()
-def confirm(
-        rel_path: str = "",
-        pattern: str = "*"
-):
+    """递归查找指定目录下的目录或文件，按模式过滤。"""
+    if pattern == "*":
+        return "不允许使用*来匹配所有文件,会造成性能问题"
     p = safe_path(rel_path)
     return ",".join(
         str(x.relative_to(PROJECT_ROOT))
@@ -100,14 +88,14 @@ def list_dir(
     return ",".join([x.name for x in p.iterdir() if x.match(pattern)])
 
 
-@mcp.tool()
-def list_files(
-        rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
-        pattern: Annotated[str, Field(description="文件名匹配模式,如 *.py、*.txt，默认匹配所有文件。")] = "*"
-):
-    """递归列出或查找指定目录下的文件，可按模式过滤。"""
-    p = safe_path(rel_path)
-    return ",".join([str(x.relative_to(PROJECT_ROOT)) for x in p.rglob(pattern) if x.is_file()])
+# @mcp.tool()
+# def list_files(
+#         rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = "",
+#         pattern: Annotated[str, Field(description="文件名匹配模式,如 *.py、*.txt，默认匹配所有文件。")] = "*"
+# ):
+#     """递归列出或查找指定目录下的文件，可按模式过滤。"""
+#     p = safe_path(rel_path)
+#     return ",".join([str(x.relative_to(PROJECT_ROOT)) for x in p.rglob(pattern) if x.is_file()])
 
 
 @mcp.tool()
@@ -119,10 +107,6 @@ def patch_file(
         )]
 ):
     """通过原文内容匹配文件中的唯一位置，并进行替换。
-    逻辑：
-    1. 如果文件中未找到完全匹配的原文内容 → 不执行修改。
-    2. 如果匹配到多处 → 不执行修改。
-    3. 如果匹配到唯一一处 → 将其替换为 new_content。
     """
     p = safe_path(src)
     if not p.exists():
@@ -135,7 +119,7 @@ def patch_file(
         return f"匹配到 {count} 处，操作取消，请确保原文内容唯一。"
     new_text = text.replace(original_content, new_content, 1)
     p.write_text(new_text, encoding="utf-8")
-    return "已成功替换匹配内容。"
+    return "已成功替换。"
 
 
 @mcp.tool()
