@@ -1,16 +1,12 @@
 import subprocess
 from typing import Annotated, Literal, Optional
 import shutil
-
 from mcp.server.fastmcp import FastMCP
-
 from pydantic import Field
-
 from .path_utils import safe_path, PROJECT_ROOT
 import logging
 
 logging.basicConfig(level=logging.WARNING)
-
 mcp = FastMCP()
 
 
@@ -20,7 +16,7 @@ async def run_commands(
         rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = ""):
     # timeout: Annotated[int, Field(description="超时时间（秒）,默认10秒")] = 10)
     """
-    用户为Windows系统,该工具用于执行shell命令.
+    该工具用于执行Windows系统的cmd命令.
     特点：
     - 每次调用都是独立执行环境，不会记住之前的工作目录。
     - 必须通过 rel_path 指定要执行命令的目录。
@@ -31,7 +27,7 @@ async def run_commands(
       - python app.py
       - vite
       - docker run
-      这些命令不会退出，会导致工具超时。
+      这些命令不会退出，会导致死循环。
   """
     p = safe_path(rel_path)
 
@@ -76,6 +72,12 @@ def search_file(
         str(x.relative_to(PROJECT_ROOT))
         for x in p.rglob(pattern)
     )
+
+
+@mcp.tool()
+def get_project_root():
+    """获取项目根目录的路径"""
+    return PROJECT_ROOT
 
 
 @mcp.tool()
