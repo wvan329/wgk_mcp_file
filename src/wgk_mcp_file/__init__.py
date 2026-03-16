@@ -12,7 +12,7 @@ mcp = FastMCP()
 
 @mcp.tool()
 async def run_commands(
-        commands: Annotated[list[str], Field(description="要执行的命令列表")],
+        command: Annotated[str, Field(description="要执行的命令,多个命令用 && 连接")],
         rel_path: Annotated[str, Field(description="相对于项目根目录的路径，默认为根目录。")] = ""):
     # timeout: Annotated[int, Field(description="超时时间（秒）,默认10秒")] = 10)
     """
@@ -35,16 +35,16 @@ async def run_commands(
         return f"相对路径不存在: {rel_path}"
     # 禁止明显危险命令
     dangerous = ["rm", "del", "shutdown", "reboot", "mkfs", "format"]
-    for cmd in commands:
+    for cmd in command:
         for bad in dangerous:
             if cmd.lower().startswith(bad):
                 return f"检测到危险命令: {cmd}, 拒绝执行"
     # 过滤掉以 cd 开头的命令
     # commands = [c for c in commands if not c.strip().startswith("cd ")]
-    cmd = " && ".join(commands)
+    # cmd = " && ".join(commands)
 
     result = subprocess.run(
-        cmd,
+        command,
         shell=True,
         cwd=p,
         capture_output=True,
@@ -103,7 +103,7 @@ def list_dir(
 @mcp.tool()
 def patch_file(
         src: Annotated[str, Field(description="文件路径(相对于项目根目录)")],
-        original_content: Annotated[str, Field(description=("要匹配的原始文件内容"))],
+        original_content: Annotated[str, Field(description="原始文件内容")],
         new_content: Annotated[str, Field(
             description="用于替换的新内容"
         )]
@@ -148,9 +148,6 @@ def file_operation(
     移动或重命名文件或目录 (move)。 所有路径均为相对于项目根目录的路径，其中 src 表示源路径，dst 表示目标路径（用于复制或移动操作），content
     用于写入或追加的文本内容。该工具会在需要时自动创建目标目录，并确保操作在项目根目录范围内执行。
     """
-    src = src.replace(" ", "")
-    if dst:
-        dst = dst.replace(" ", "")
     p = safe_path(src)
 
     # READ
